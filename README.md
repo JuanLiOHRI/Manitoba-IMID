@@ -6,7 +6,7 @@ doi: [to be inserted]
 
 ## Data files
 
-This study was a secondary analysis of de-identified data from the “Defining the Burden and Managing the Effects of Immune-mediated Inflammatory Disease” (IMID) study. This clinical data is not publicly accessible. For accessing data, please contact the cohort PIs: Ruth Ann Marrie (RuthAnn.Marrie@dal.ca) and Charles Bernstein (Charles.Bernstein@umanitoba.ca). With their approval, we can send you the prepared data files that were used in this project.
+This study was a secondary analysis of de-identified data from the “Defining the Burden and Managing the Effects of Immune-mediated Inflammatory Disease” (IMID) study. This clinical data is not publicly accessible. For accessing data, please contact the cohort PIs: Ruth Ann Marrie (RuthAnn.Marrie@dal.ca) and Charles Bernstein (Charles.Bernstein@umanitoba.ca). Data may be made available by the PIs to qualified investigators with the appropriate ethical approvals and data use agreements.
 
 ## Code files
 

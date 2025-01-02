@@ -1,0 +1,110 @@
+---
+title: "Analysis of the Manitoba data - GRM"
+format: pptx
+editor: visual
+---
+
+```{r}
+library(dplyr)
+library(mirt)
+library(GGally)
+library(pROC)
+library(ggpubr)
+library(latex2exp)
+
+source("R/theta2arclengrm.R")
+```
+
+## Read data
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| output: false
+
+data <- read.csv("data/Manitpba data.csv", header = TRUE)
+
+dis_vec <- rep("Dep_", 2)
+test_vec <- c("phq_", "promis_dep")
+title_vec <- c("PHQ-9", "PROMIS-D")
+noption_vec <- c(4, 5)
+data_from_0 <- c(T, F) # If responses start from 0
+```
+
+## Fit models
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+
+
+df_theta    <- data.frame(ind = 1:nrow(data)) # save the score indices of the last cycle
+df_theta_al <- data.frame(ind = 1:nrow(data)) # save the score indices of the last cycle
+item_al <- list()
+
+for (itest in 1:length(test_vec)) {
+  test     <- test_vec[itest]
+  titlestr <- paste0(dis_vec[itest], title_vec[itest])
+  print(titlestr)
+  
+  df <- data %>% select(contains(test))
+  print(colSums(is.na(df)))
+  
+  indComplete <- which(complete.cases(df))
+  df <- df[complete.cases(df),]
+  # If starts from 1, remove 1 to start from 0
+  if (!data_from_0[itest]) {
+    df <- df - 1
+  }
+  
+  # fit model
+  file_name <- paste0("data/saved results/grm_", titlestr, ".rds")
+  if (file.exists(file_name)) {
+    grm <- readRDS(file_name)
+  } else {
+    start <- Sys.time()
+    grm <- mirt(df, model = 1, itemtype = "graded")
+    print(paste0("Run time: ", Sys.time() - start))
+    saveRDS(grm, file=file_name)
+  }
+  
+  # save the score indices
+  thetas <- fscores(grm)
+  df_theta$new <- rep(NA, nrow(data))
+  df_theta$new[indComplete] <- thetas
+  names(df_theta)[which(names(df_theta) == "new")] <- title_vec[itest]
+  
+  # compute the arc length or information measure
+  df_theta_al$new <- rep(NA, nrow(data))
+  df_theta_al$new[indComplete] <- theta2arclengrm(
+    mod = grm,
+    thetas = thetas,
+    total_cat = ncol(df)*noption_vec[itest],
+    surp_base = rep(noption_vec[itest], ncol(df)),
+  )
+  names(df_theta_al)[which(names(df_theta_al) == "new")] <- title_vec[itest]
+  
+  item_al[[test]] <- item_arclength(
+    mod = grm,
+    thetas = thetas,
+    surp_base = noption_vec[itest],
+  ) |> sapply(max)
+}
+
+write.csv(df_theta %>% select(-ind), "data/saved results/grm_df_theta.csv", row.names = F)
+write.csv(df_theta_al %>% select(-ind), "data/saved results/grm_df_theta_al.csv", row.names = F)
+saveRDS(item_al, file="data/saved results/grm_item_al.rds")
+```
+
+```{r}
+print(cor(df_theta |> select(-ind), use="pairwise.complete.obs"))
+print(cor(df_theta_al |> select(-ind), use="pairwise.complete.obs"))
+print(cor(df_theta |> select(-ind), use="pairwise.complete.obs", method = "spearman"))
+print(cor(df_theta_al |> select(-ind), use="pairwise.complete.obs", method = "spearman"))
+```
+
+```{r}
+
+```

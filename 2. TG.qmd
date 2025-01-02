@@ -1,0 +1,250 @@
+---
+title: "Analysis of the Manitoba data - TestGardener"
+author: "Juan Li"
+date: 2024-08-30
+format: pptx
+editor: visual
+---
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| output: false
+
+#install.packages("TestGardener")
+#install.packages("/Users/juan/Desktop/IRT/! Packages/TG/TestGardener 3.2.6", repos = NULL, type="source")
+
+library(dplyr)
+library(TestGardener)
+library(ggpubr)
+
+if (packageVersion("TestGardener") == "3.3.3") {
+  source("R/Analyze 3.3.3.R", echo=TRUE)
+  source("R/make_dataList 3.3.3.R", echo=TRUE)
+  source("R/index_search 3.3.3.R", echo=TRUE)
+}
+```
+
+## Read data
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| output: false
+
+data <- read.csv("data/Manitpba data.csv", header = TRUE)
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+
+dis_vec <- rep("Dep_", 2)
+test_vec <- c("phq_", "promis_dep")
+title_vec <- c("PHQ-9", "PROMIS-D")
+noption_vec <- c(4, 5)
+data_from_0 <- c(T, F) # If responses start from 0
+```
+
+Parameters that are shared by all tests
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+
+# random seed
+seed <- 100
+
+# number of cycles
+ncycle <- 10
+
+# number of bins: ~50 participants/bin
+nbin   <- 16
+```
+
+## Analysis
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+
+if (packageVersion("TestGardener") == "3.3.3") {
+  folder_vec <- "data/saved results/"
+} else {
+  folder_vec <- "data/saved results/3.2.6/"
+}
+
+vec_nbasis <- c(2,4)
+
+for (ibasis in 1:length(vec_nbasis)) {
+  # Set up the number and properties of the basis functions 
+  Wnbasis <- vec_nbasis[ibasis]
+  Wnorder <- Wnbasis
+  Wbasis  <- create.bspline.basis(c(0,100), Wnbasis, Wnorder)
+  Wfd     <- fd(matrix(0,Wnbasis,1), Wbasis)
+  WfdPar  <- fdPar(Wfd)
+  
+  df_theta    <- data.frame(ind = 1:nrow(data)) # save the score indices of the last cycle
+  df_theta_al <- data.frame(ind = 1:nrow(data)) # save the score indices of the last cycle
+  
+  for (itest in 1:length(test_vec)) {
+    test     <- test_vec[itest]
+    titlestr <- paste0(dis_vec[itest], title_vec[itest], "_", Wnbasis, "b")
+    print(titlestr)
+    
+    df <- data %>% select(contains(test))
+    print(colSums(is.na(df)))
+    
+    indComplete <- which(complete.cases(df))
+    df <- df[complete.cases(df),] # for scales, working with complete cases
+    N <- nrow(df)
+    n <- ncol(df)
+    
+    # If starts from 0, add 1 to turn score values into indices
+    U <- as.matrix(df)
+    if (data_from_0[itest]) {
+      U <- U + 1 
+    }
+    
+    #  number of options per item
+    noption <- rep(noption_vec[itest], n)
+    
+    ##  Define the option score values for each item
+    scoreList <- vector("list", n)
+    for (item in 1:n) {
+      if (data_from_0[itest]) {
+        scorei <- 0:(noption[item] - 1)
+      } else {
+        scorei <- 1:noption[item]
+      }
+      scoreList[[item]] <- scorei
+    }
+    optList <- list(itemLab=NULL, optLab=NULL, optScr=scoreList)
+    
+    # range of sum score
+    if (data_from_0[itest]) {
+      scrrng <- c(0, (noption_vec[itest] - 1) * n)
+    } else {
+      scrrng <- c(n, noption_vec[itest] * n)
+    }
+    
+    # construct the dataList object 
+    file_name <- paste0(folder_vec, titlestr, "_dataList.rds")
+    if (file.exists(file_name)) {
+      dataList <- readRDS(file_name)
+    } else {
+      set.seed(seed)
+      if (packageVersion("TestGardener") == "3.3.3") {
+        dataList <- make_dataList(U, scoreList, noption, scrrng, titlestr, itemlabvec=NULL, optlabList=NULL,
+                                  nbin, Wnbasis, jitterwrd=TRUE)
+        theta    <- dataList$percntrnk
+        thetaQnt <- dataList$indexQnt
+      } else {
+        dataList <- make.dataList(U, NULL, optList, scrrng, titlestr,
+                                  nbin, Wnbasis, WfdPar, jitterwrd=TRUE)
+        theta    <- dataList$percntrnk
+        thetaQnt <- dataList$thetaQnt
+      }
+      saveRDS(dataList, file=file_name)
+    }
+    
+    # Wbinsmth on percentage rank
+    file_name <- paste0(folder_vec, titlestr, "_WfdResult0.rds")
+    if (file.exists(file_name)) {
+      WfdResult0 <- readRDS(file_name)
+    } else {
+      if (packageVersion("TestGardener") == "3.3.3") {
+        WfdResult0 <- Sbinsmth(theta, dataList)
+      } else {
+        WfdResult0 <- Wbinsmth(theta, dataList)
+      }
+      saveRDS(WfdResult0, file=file_name)
+    }
+    
+    # analysis step 
+    file_name <- paste0(folder_vec, titlestr, "_analyzeResult.rds")
+    if (file.exists(file_name)) {
+      AnalyzeResult <- readRDS(file_name)
+    } else {
+      start <- Sys.time()
+      if (packageVersion("TestGardener") == "3.3.3") {
+        AnalyzeResult <- Analyze(theta, thetaQnt, dataList, Wnbasis, Wnorder, ncycle,
+                                 itdisp=FALSE, verbose=TRUE)
+      } else {
+        AnalyzeResult <- Analyze(theta, thetaQnt, dataList, ncycle,
+                                 itdisp=FALSE, verbose=TRUE)
+      }
+      print(paste0("Run time: ", Sys.time() - start))
+      saveRDS(AnalyzeResult, file=file_name)
+    }
+    
+    # select the last cycle for further analysis
+    if (packageVersion("TestGardener") == "3.3.3") {
+      parList <- AnalyzeResult$parmListvec[[ncycle]]
+      theta      <- parList$index
+      Qvec       <- parList$Qvec
+      WfdList    <- parList$SfdList
+      binctr     <- parList$binctr
+    } else {
+      parList <- AnalyzeResult$parList[[ncycle]]
+      theta      <- parList$theta
+      Qvec       <- parList$Qvec
+      WfdList    <- parList$WfdList
+      binctr     <- parList$binctr
+    }
+    
+    # save the score indices of the last cycle
+    df_theta$new <- rep(NA, nrow(data))
+    df_theta$new[indComplete] <- theta
+    names(df_theta)[which(names(df_theta) == "new")] <- title_vec[itest]
+    
+    # compute the arc length or information measure
+    file_name <- paste0(folder_vec, titlestr, "_infoList.rds")
+    if (file.exists(file_name)) {
+      infoList <- readRDS(file_name)
+    } else {
+      if (packageVersion("TestGardener") == "3.3.3") {
+        infoList <- index2info(theta, Qvec, WfdList, binctr) 
+        df_theta_al$new <- rep(NA, nrow(data))
+        df_theta_al$new[indComplete] <- infoList$scopevec
+      } else {
+        infoList <- theta2arclen(theta, Qvec, WfdList, binctr) 
+        df_theta_al$new <- rep(NA, nrow(data))
+        df_theta_al$new[indComplete] <- infoList$theta_al
+      }
+      
+      saveRDS(infoList, file=file_name)
+    }
+    
+    # save the arc lengths
+    names(df_theta_al)[which(names(df_theta_al) == "new")] <- title_vec[itest]
+  }
+  write.csv(df_theta %>% select(-ind), paste0(folder_vec, "df_theta_", Wnbasis, "b.csv"), row.names = F)
+  write.csv(df_theta_al %>% select(-ind), paste0(folder_vec, "df_theta_al_", Wnbasis, "b.csv"), row.names = F)
+}
+```
+
+```{r}
+library(ggplot2)
+
+for (i in 1:10) {
+  parList <- readRDS("data/saved results/Dep_PHQ-9_4b_analyzeResult.rds")$parmListvec[[i]]
+  parList_old <- readRDS("data/saved results/3.2.6/Dep_PHQ-9_4b_analyzeResult.rds")$parList[[i]]
+  df <- data.frame(theta_3.3.3 = parList$index,
+                   theta_3.2.6 = parList_old$theta)
+  
+  print(ggplot(df, aes(theta_3.2.6, theta_3.3.3)) +
+          geom_point()+
+          labs(title = paste0("cycle ", i))+
+          theme_bw())
+}
+```
+
+```{r}
+
+```

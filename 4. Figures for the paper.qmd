@@ -1,0 +1,707 @@
+---
+title: "Analysis of the Manitoba data - figures in the paper"
+author: "Juan Li"
+date: 2024-08-26
+format: html
+editor: visual
+---
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| output: false
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(GGally)
+library(ggpubr)
+library(dabestr)
+library(pROC)
+library(gtsummary)
+library(factoextra)
+library(ggfortify)
+library(TestGardener)
+library(tidyverse)
+
+if (packageVersion("TestGardener") == "3.3.3") {
+  source("R/ICC.plot 3.3.3.R")
+} else {
+  source("R/ICC.plot.R")
+}
+
+source("R/entropies 3.3.3.R")
+source("R/grm_plots.R")
+source("R/data and plot.R")
+```
+
+## Figure 1 & 2, for illustration purpose, use the old HADS (3-option)
+
+```{r, echo=FALSE, message=FALSE,warning=FALSE}
+#| echo: false
+#| warning: false
+#| message: false
+
+load(file="data/hads_dep_3d_2b_parList.rda")
+```
+
+# Probability space: Probability curves of item 6 and 7 - Figure 1 2024-03
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+
+Wfd1 <- hads_dep_3d_2b_parList$WfdList[[6]]
+Wfd2 <- hads_dep_3d_2b_parList$WfdList[[7]]
+indfine <- seq(0,100, 5)
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+
+# Item 6
+pmat <- Wfd1$Pmatfine
+pmat <- pmat[seq(1,101, 5),]
+
+df_2d_1 <- data.frame(theta = indfine,
+                      Probability.1 = pmat[,1],
+                      Probability.2 = pmat[,2],
+                      Probability.3 = pmat[,3])
+
+df_long <- df_2d_1 %>% pivot_longer(-theta, names_to = "type", values_to = "value")
+
+p1 <- ggplot(df_long, aes(theta, value, color = type)) + 
+  geom_point() +
+  labs(title = "Item A",
+       x = "Score index",
+       y = "Probability") +
+  theme_bw() +
+  theme(legend.title = element_blank(),
+        legend.position = "None")
+
+# Item 7
+pmat <- Wfd2$Pmatfine
+pmat <- pmat[seq(1,101, 5),]
+
+df_2d_2 <- data.frame(theta = indfine,
+                      Probability.1 = pmat[,1],
+                      Probability.2 = pmat[,2],
+                      Probability.3 = pmat[,3])
+
+df_long <- df_2d_2 %>% pivot_longer(-theta, names_to = "type", values_to = "value")
+
+p2 <- ggplot(df_long, aes(theta, value, color = type)) + 
+  geom_point() +
+  labs(title = "Item B",
+       x = "Score index",
+       y = "Probability") +
+  theme_bw() +
+  theme(legend.title = element_blank(),
+        legend.position = c(0.8, 0.85))
+
+ggarrange(p1, p2, ncol = 2)
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+
+# 3D plot
+x <- seq(0, 1, length= 50)
+x <- x[x>0 & x<1]
+y <- x
+U <- expand.grid(x,y)
+df <- data.frame(Probability.1 = U[,1],
+                 Probability.2 = U[,2]) %>% 
+  mutate(Probability.3 = 1- Probability.1 - Probability.2) %>% 
+  filter(Probability.3 > 5e-3)
+
+fig <- plot_ly(df, x = ~Probability.1, y = ~Probability.2, z = ~Probability.3)
+fig <- fig %>% add_markers(size = 1, color = "Probability manifold")
+
+fig <- fig %>% 
+  add_markers(x = df_2d_1$Probability.1 , y = df_2d_1$Probability.2, z = df_2d_1$Probability.3, color = "Item A", size = 2,  
+              marker = list(color = 'magenta')) 
+fig <- fig %>% 
+  add_markers(x = df_2d_2$Probability.1, y = df_2d_2$Probability.2, z = df_2d_2$Probability.3, color = "Item B", size = 2,  
+              marker = list(color = 'black')) 
+fig
+```
+
+# Surprisal space: Surprisal curves of item 6 and 7 - Figure 2 2024-03
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+
+# Item 6
+wmat <- Wfd1$Wmatfine
+wmat <- wmat[seq(1,101, 5),]
+
+df_2d_1 <- data.frame(theta = indfine,
+                      Surprisal.1 = wmat[,1],
+                      Surprisal.2 = wmat[,2],
+                      Surprisal.3 = wmat[,3])
+
+df_long <- df_2d_1 %>% pivot_longer(-theta, names_to = "type", values_to = "value")
+
+p1 <- ggplot(df_long, aes(theta, value, color = type)) + 
+  geom_point() +
+  labs(title = "Item A",
+       x = "Score index",
+       y = "Surprisal (3-bit)") +
+  ylim(0, 6)+
+  theme_bw() +
+  theme(legend.title = element_blank(),
+        legend.position = "None")
+
+# Item 7
+wmat <- Wfd2$Wmatfine
+wmat <- wmat[seq(1,101, 5),]
+
+df_2d_2 <- data.frame(theta = indfine,
+                      Surprisal.1 = wmat[,1],
+                      Surprisal.2 = wmat[,2],
+                      Surprisal.3 = wmat[,3])
+
+df_long <- df_2d_2 %>% pivot_longer(-theta, names_to = "type", values_to = "value")
+
+p2 <- ggplot(df_long, aes(theta, value, color = type)) + 
+  geom_point() +
+  labs(title = "Item B",
+       x = "Score index",
+       y = "Surprisal (3-bit)") +
+  ylim(0, 6)+
+  theme_bw() +
+  theme(legend.title = element_blank(),
+        legend.position = c(0.8, 0.85))
+
+ggarrange(p1, p2, ncol = 2)
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+
+# 3D plot
+x <- seq(0, 5.5, length= 50)
+crop <- x[1:6]
+y <- x
+U <- expand.grid(x,y)
+df1 <- data.frame(Surprisal.1 = U[,1],
+                  Surprisal.2 = U[,2]) %>% 
+  mutate(Surprisal.3 = -log((1 - 3^(-Surprisal.1) - 3^(-Surprisal.2)),3)) %>% 
+  filter(!is.na(Surprisal.3), !(Surprisal.1 %in% crop), !(Surprisal.2 %in% crop)) 
+
+df2 <- data.frame(Surprisal.1 = df1$Surprisal.2,
+                  Surprisal.2 = df1$Surprisal.3) %>% 
+  mutate(Surprisal.3 = -log((1 - 3^(-Surprisal.1) - 3^(-Surprisal.2)),3)) %>% 
+  filter(!is.na(Surprisal.3), !(Surprisal.1 %in% crop), !(Surprisal.2 %in% crop)) 
+
+df3 <- data.frame(Surprisal.1 = df1$Surprisal.3,
+                  Surprisal.2 = df1$Surprisal.1) %>% 
+  mutate(Surprisal.3 = -log((1 - 3^(-Surprisal.1) - 3^(-Surprisal.2)),3)) %>% 
+  filter(!is.na(Surprisal.3), !(Surprisal.1 %in% crop), !(Surprisal.2 %in% crop)) 
+
+df <- dplyr::bind_rows(df1, df2, df3)
+
+fig <- plot_ly(df, x = ~Surprisal.1, y = ~Surprisal.2, z = ~Surprisal.3)
+fig <- fig %>% add_markers(size = 1, color = "Surprisal manifold")
+
+fig <- fig %>% 
+  add_markers(x = df_2d_1$Surprisal.1, y = df_2d_1$Surprisal.2, z = df_2d_1$Surprisal.3, color = "Item A", size = 4,  
+              marker = list(color = 'magenta')) 
+fig <- fig %>% 
+  add_markers(x = df_2d_2$Surprisal.1, y = df_2d_2$Surprisal.2, z = df_2d_2$Surprisal.3, color = "Item B", size = 4,  
+              marker = list(color = 'black')) 
+fig
+```
+
+## Sum score distribution
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| fig-width: 12
+#| fig-height: 8
+
+data <- read.csv("data/Manitpba data.csv", header = TRUE)
+
+ind <- which(grepl("phq_", names(data)))
+data$phq_dep <- rowSums(data[, ind])
+data <- data %>% 
+  mutate(phq_cat = ifelse(is.na(phq_dep), NA,
+                          case_when(
+                            phq_dep <= 4  ~ "None-minimal",
+                            phq_dep <= 9  ~ "Mild",
+                            phq_dep <= 14 ~ "Moderate",
+                            phq_dep <= 19 ~ "Moderately severe",
+                            TRUE          ~ "Severe"
+                          )))
+data$phq_cat <- factor(data$phq_cat, levels = c("None-minimal", "Mild", "Moderate", "Moderately severe", "Severe"))
+
+ind <- which(grepl("promis_dep", names(data)))
+data$promis_dep <- rowSums(data[, ind])
+data <- data %>% 
+  mutate(promisd_cat = ifelse(is.na(promis_dep), NA,
+                              case_when(
+                                promis_dep < 17 ~ "None-minimal",
+                                promis_dep < 23 ~ "Mild",
+                                promis_dep < 33 ~ "Moderate",
+                                TRUE            ~ "Severe"
+                              )))
+data$promisd_cat <- factor(data$promisd_cat, levels = c("None-minimal", "Mild", "Moderate", "Severe"))
+
+p1 <- ggplot(data, aes(phq_dep, fill = phq_cat)) +
+  geom_bar(color = "black", width = 1)+
+  labs(x = "Sum Score",
+       y = "Frequency",
+       title = "PHQ-9")+
+  theme_bw()+
+  #ylim(0,165)+
+  theme(text = element_text(size=12),
+        legend.title = element_blank(),
+        legend.position = c(0.8, 0.7))
+g <- ggplot_build(p1)
+colors <- unique(g$data[[1]]["fill"])
+
+p2 <- ggplot(data, aes(promis_dep, fill = promisd_cat)) +
+  geom_bar(color = "black", width = 1)+
+  scale_fill_manual(values = colors$fill[c(1:3,5)])+
+  labs(x = "Sum Score",
+       y = "Frequency",
+       title = "PROMS-D")+
+  theme_bw()+
+  #ylim(0,165)+
+  theme(text = element_text(size=12),
+        legend.title = element_blank(),
+        legend.position = c(0.8, 0.7))
+
+p3 <- ggplot(data %>% filter(!is.na(phq_cat), !is.na(promisd_cat)), aes(x = phq_cat, fill = promisd_cat)) + 
+  geom_bar()+
+  scale_fill_manual(values = colors$fill[c(1:3,5)])+
+  labs(x = "PHQ-9 category",
+       y = "Frequency",
+       fill = "PROMIS-D category")+
+  theme_bw()+
+  ylim(0,500)+
+  theme(text = element_text(size=12),
+        legend.position = c(0.8, 0.7))
+
+p4 <- ggplot(data %>% filter(!is.na(phq_cat), !is.na(promisd_cat)), aes(x = promisd_cat, fill = phq_cat)) + 
+  geom_bar()+
+  labs(x = "PROMIS-D category",
+       y = "Frequency",
+       fill = "PHQ-9 category")+
+  theme_bw()+
+  ylim(0,500)+
+  theme(text = element_text(size=12),
+        legend.position = c(0.8, 0.7))
+
+ggarrange(ggarrange(p1, p3, nrow = 2), ggarrange(p2, p4, nrow = 2), ncol = 2)
+```
+
+```{r}
+phq <- data %>% select(phq_1:phq_9)
+for (i in 1:9) {
+  print(paste("PHQ-9:", i))
+  #print(table(phq[,i]))
+  print(round(table(phq[,i])/sum(!is.na(data$phq_dep)) *100))
+}
+
+promisd <- data %>% select(promis_dep1:promis_dep8)
+for (i in 1:8) {
+  print(paste("PROMIS-D:", i))
+  #print(table(promisd[,i]))
+  print(round(table(promisd[,i])/sum(!is.na(data$promis_dep)) *100))
+}
+```
+
+## ICCs
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| fig-width: 12
+#| fig-height: 36
+
+# PHQ-9
+data_phq_2b  <- data4Plot("Dep_PHQ-9_2b", model = "TG", test = "PHQ-9") 
+data_phq_4b  <- data4Plot("Dep_PHQ-9_4b", model = "TG", test = "PHQ-9") 
+data_phq_grm <- data4Plot("Dep_PHQ-9", model = "GRM", test = "PHQ-9", i_test = 1) 
+
+multi.plot(data_phq_2b, data_phq_4b, data_phq_grm)
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| fig-width: 12
+#| fig-height: 32
+
+# PROMIS-D-9
+data_promisd_2b  <- data4Plot("Dep_PROMIS-D_2b", model = "TG", test = "PROMIS-D") 
+data_promisd_4b  <- data4Plot("Dep_PROMIS-D_4b", model = "TG", test = "PROMIS-D") 
+data_promisd_grm <- data4Plot("Dep_PROMIS-D", model = "GRM", test = "PROMIS-D", i_test = 2) 
+
+multi.plot(data_promisd_2b, data_promisd_4b, data_promisd_grm)
+```
+
+## Plot of information vs index
+
+```{r}
+# PHQ-9
+n <- data_phq_2b$n
+phq <- data.frame(index = seq(0,100,len=101),
+                  test_2b = data_phq_2b$arclengthvec,
+                  test_4b = data_phq_4b$arclengthvec)
+
+for (i in 1:n) {
+  phq$new <- data_phq_2b$itemSurpmat[,i]
+  names(phq)[which(names(phq) == "new")] <- paste("item", i, "2b", sep = "_")
+  phq$new <- data_phq_4b$itemSurpmat[,i]
+  names(phq)[which(names(phq) == "new")] <- paste("item", i, "4b", sep = "_")
+}
+
+phq_long <- phq %>% pivot_longer(-index, names_to = "type", values_to = "information") %>% 
+  mutate(nitem = case_when(
+    grepl("test", type) ~ "test",
+    grepl("item_1", type) ~ "item_1",
+    grepl("item_2", type) ~ "item_2",
+    grepl("item_3", type) ~ "item_3",
+    grepl("item_4", type) ~ "item_4",
+    grepl("item_5", type) ~ "item_5",
+    grepl("item_6", type) ~ "item_6",
+    grepl("item_7", type) ~ "item_7",
+    grepl("item_8", type) ~ "item_8",
+    grepl("item_9", type) ~ "item_9"
+  ))
+phq_long$nbasis <- ifelse(grepl("_2b", phq_long$type), "2-basis", "4-basis")
+
+# PROMIS-D
+n <- data_promisd_2b$n
+promisd <- data.frame(index = seq(0,100,len=101),
+                      test_2b = data_promisd_2b$arclengthvec,
+                      test_4b = data_promisd_4b$arclengthvec)
+
+for (i in 1:n) {
+  promisd$new <- data_promisd_2b$itemSurpmat[,i]
+  names(promisd)[which(names(promisd) == "new")] <- paste("item", i, "2b", sep = "_")
+  promisd$new <- data_promisd_4b$itemSurpmat[,i]
+  names(promisd)[which(names(promisd) == "new")] <- paste("item", i, "4b", sep = "_")
+}
+
+promisd_long <- promisd %>% pivot_longer(-index, names_to = "type", values_to = "information") %>% 
+  mutate(nitem = case_when(
+    grepl("test", type) ~ "test",
+    grepl("item_1", type) ~ "item_1",
+    grepl("item_2", type) ~ "item_2",
+    grepl("item_3", type) ~ "item_3",
+    grepl("item_4", type) ~ "item_4",
+    grepl("item_5", type) ~ "item_5",
+    grepl("item_6", type) ~ "item_6",
+    grepl("item_7", type) ~ "item_7",
+    grepl("item_8", type) ~ "item_8"
+  ))
+promisd_long$nbasis <- ifelse(grepl("_2b", promisd_long$type), "2-basis", "4-basis")
+
+df_long <- bind_rows(phq_long %>% mutate(test = "PHQ-9"),
+                     promisd_long %>% mutate(test = "PROMIS-D")) %>% 
+  mutate(information2 = ifelse(test == "PHQ-9", information * log(4, 2), information * log(5, 2)))
+
+p1 <- ggplot(df_long %>% filter(test == "PHQ-9", nitem != "test"), aes(index, information, color = nitem, group = nitem)) +
+  geom_line()+
+  facet_wrap(~nbasis)+
+  labs(x = "Score Index",
+       y = "Information (4-bits)",
+       title = "PHQ-9")+
+  ylim(0, ceiling(max(df_long %>% filter(nitem != "test") %>% select(information)))) +
+  theme_bw() +
+  theme(text = element_text(size=12),
+        legend.title = element_blank(),
+        legend.position = c(0.1, 0.65))
+g <- ggplot_build(p1)
+colors <- unique(g$data[[1]]["colour"])
+
+p2 <- ggplot(df_long %>% filter(test == "PROMIS-D", nitem != "test"), aes(index, information, color = nitem, group = nitem)) +
+  geom_line()+
+  scale_color_manual(values = colors$colour[1:8])+
+  facet_wrap(~nbasis)+
+  labs(x = "Score Index",
+       y = "Information (5-bits)",
+       title = "PROMIS-D")+
+  ylim(0, ceiling(max(df_long %>% filter(nitem != "test") %>% select(information)))) +
+  theme_bw() +
+  theme(text = element_text(size=12),
+        legend.title = element_blank(),
+        legend.position = c(0.1, 0.65))
+
+p3 <- ggplot(df_long %>% filter(test == "PHQ-9", nitem != "test"), aes(index, information2, color = nitem, group = nitem)) +
+  geom_line()+
+  facet_wrap(~nbasis)+
+  labs(x = "Score Index",
+       y = "Information (2-bits)",
+       title = "PHQ-9")+
+  ylim(0, ceiling(max(df_long %>% filter(nitem != "test") %>% select(information2)))) +
+  theme_bw() +
+  theme(text = element_text(size=12),
+        legend.title = element_blank(),
+        legend.position = c(0.1, 0.65))
+
+p4 <- ggplot(df_long %>% filter(test == "PROMIS-D", nitem != "test"), aes(index, information2, color = nitem, group = nitem)) +
+  geom_line()+
+  scale_color_manual(values = colors$colour[1:8])+
+  facet_wrap(~nbasis)+
+  labs(x = "Score Index",
+       y = "Information (2-bits)",
+       title = "PROMIS-D")+
+  ylim(0, ceiling(max(df_long %>% filter(nitem != "test") %>% select(information2)))) +
+  theme_bw() +
+  theme(text = element_text(size=12),
+        legend.title = element_blank(),
+        legend.position = c(0.1, 0.65))
+p1
+p2
+p3
+p4
+
+p1 <- ggplot(df_long %>% filter(test == "PHQ-9", nitem == "test"), aes(index, information)) +
+  geom_line()+
+  facet_wrap(~nbasis)+
+  labs(x = "Score Index",
+       y = "Information (4-bits)",
+       title = "PHQ-9")+
+  ylim(0, ceiling(max(df_long$information))) +
+  theme_bw() +
+  theme(text = element_text(size=12))
+
+p2 <- ggplot(df_long %>% filter(test == "PROMIS-D", nitem == "test"), aes(index, information)) +
+  geom_line()+
+  facet_wrap(~nbasis)+
+  labs(x = "Score Index",
+       y = "Information (5-bits)",
+       title = "PROMIS-D")+
+  ylim(0, ceiling(max(df_long$information))) +
+  theme_bw() +
+  theme(text = element_text(size=12))
+
+p3 <- ggplot(df_long %>% filter(test == "PHQ-9", nitem == "test"), aes(index, information2)) +
+  geom_line()+
+  facet_wrap(~nbasis)+
+  labs(x = "Score Index",
+       y = "Information (2-bits)",
+       title = "PHQ-9")+
+  ylim(0, ceiling(max(df_long$information2))) +
+  theme_bw() +
+  theme(text = element_text(size=12))
+
+p4 <- ggplot(df_long %>% filter(test == "PROMIS-D", nitem == "test"), aes(index, information2)) +
+  geom_line()+
+  facet_wrap(~nbasis)+
+  labs(x = "Score Index",
+       y = "Information (2-bits)",
+       title = "PROMIS-D")+
+  ylim(0, ceiling(max(df_long$information2))) +
+  theme_bw() +
+  theme(text = element_text(size=12))
+p1
+p2
+p3
+p4
+```
+
+## mutual entropy
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| fig-width: 20
+#| fig-height: 8
+
+print("PHQ-9")
+n       <- data_phq_4b$dataList$n
+N       <- data_phq_4b$dataList$N
+U_phq   <- data_phq_4b$dataList$chcemat
+noption <- data_phq_4b$dataList$noption
+# Overall entropy
+entropy_mutual <- matrix(0, n, n)
+for (item_m in 1:n) {
+  for (item_n in 1:n) {
+    entropy_mutual[item_m, item_n] <- entropies(1:N, item_m, item_n, U_phq, noption)$Hmutual
+  }
+}
+names(entropy_mutual) <- paste("X", 1:n)
+df_entropy1 <-
+  entropy_mutual %>%
+  as_tibble() %>%
+  rownames_to_column("Var1") %>%
+  pivot_longer(-Var1, names_to = "Var2", values_to = "value") %>%
+  mutate(
+    Var1 = factor(Var1, levels = 1:n),
+    Var2 = factor(gsub("V", "", Var2), levels = n:1)
+  ) %>% 
+  mutate(test = "PHQ-9",
+         type = "overall")
+
+# Local entropy
+res     <- readRDS("data/saved results/Dep_PHQ-9_4b_analyzeResult.rds")
+theta   <- res$parmListvec[[10]]$index
+Qnt <- quantile(theta, c(0.2, 0.4, 0.6, 0.8, 1))
+for (i in 1:5) {
+  if (i == 1) {
+    index <- which(theta <= Qnt[i])
+  } else {
+    index <- which(theta > Qnt[i-1] & theta <= Qnt[i])
+  }
+  entropy_mutual <- matrix(0, n, n)
+  for (item_m in 1:n) {
+    for (item_n in 1:n) {
+      entropy_mutual[item_m, item_n] <- entropies(index, item_m, item_n, U_phq, noption)$Hmutual
+    }
+  }
+  names(entropy_mutual) <- paste("X", 1:n)
+  df_entropyi <-
+    entropy_mutual %>%
+    as_tibble() %>%
+    rownames_to_column("Var1") %>%
+    pivot_longer(-Var1, names_to = "Var2", values_to = "value") %>%
+    mutate(
+      Var1 = factor(Var1, levels = 1:n),
+      Var2 = factor(gsub("V", "", Var2), levels = n:1)
+    ) %>% 
+    mutate(test = "PHQ-9",
+           type = names(Qnt)[i])
+  df_entropy1 <- bind_rows(df_entropy1, df_entropyi)
+}
+
+
+# PROMIS-D
+n       <- data_promisd_4b$dataList$n
+N       <- data_promisd_4b$dataList$N
+U_promisd <- data_promisd_4b$dataList$chcemat
+noption <- data_promisd_4b$dataList$noption
+# Overall entropy
+entropy_mutual <- matrix(0, n, n)
+for (item_m in 1:n) {
+  for (item_n in 1:n) {
+    entropy_mutual[item_m, item_n] <- entropies(1:N, item_m, item_n, U_promisd, noption)$Hmutual
+  }
+}
+names(entropy_mutual) <- paste("X", 1:n)
+df_entropy2 <-
+  entropy_mutual %>%
+  as_tibble() %>%
+  rownames_to_column("Var1") %>%
+  pivot_longer(-Var1, names_to = "Var2", values_to = "value") %>%
+  mutate(
+    Var1 = factor(Var1, levels = 1:n),
+    Var2 = factor(gsub("V", "", Var2), levels = n:1)
+  ) %>% 
+  mutate(test = "PROMIS-D",
+         type = "overall")
+
+# Local entropy
+res     <- readRDS("data/saved results/Dep_PROMIS-D_4b_analyzeResult.rds")
+theta   <- res$parmListvec[[10]]$index
+Qnt <- quantile(theta, c(0.2, 0.4, 0.6, 0.8, 1))
+for (i in 1:5) {
+  if (i == 1) {
+    index <- which(theta <= Qnt[i])
+  } else {
+    index <- which(theta > Qnt[i-1] & theta <= Qnt[i])
+  }
+  entropy_mutual <- matrix(0, n, n)
+  for (item_m in 1:n) {
+    for (item_n in 1:n) {
+      entropy_mutual[item_m, item_n] <- entropies(index, item_m, item_n, U_promisd, noption)$Hmutual
+    }
+  }
+  names(entropy_mutual) <- paste("X", 1:n)
+  df_entropyi <-
+    entropy_mutual %>%
+    as_tibble() %>%
+    rownames_to_column("Var1") %>%
+    pivot_longer(-Var1, names_to = "Var2", values_to = "value") %>%
+    mutate(
+      Var1 = factor(Var1, levels = 1:n),
+      Var2 = factor(gsub("V", "", Var2), levels = n:1)
+    ) %>% 
+    mutate(test = "PROMIS-D",
+           type = names(Qnt)[i])
+  df_entropy2 <- bind_rows(df_entropy2, df_entropyi)
+}
+
+df_entropy <- bind_rows(df_entropy1, df_entropy2)
+df_entropy$type <- factor(df_entropy$type, levels = c("overall", names(Qnt)))
+levels(df_entropy$type) <- c("overall", "0-20%", "20-40%", "40-60%", "60-80%", "80-100%")
+p1 <- ggplot(df_entropy %>% filter(test == "PHQ-9"), aes(Var1, Var2)) +
+  geom_tile(aes(fill = value)) +
+  geom_text(aes(label = round(value, 2))) +
+  scale_fill_gradient(low = "white", high = "red", limits=c(-0.01,1.6))+
+  labs(fill = "Mutual entropy")+
+  theme_bw()+
+  theme(axis.title = element_blank())+
+  facet_grid(cols = vars(type), 
+             scales = "free")+
+  labs(title = "PHQ-9")
+
+p2 <- ggplot(df_entropy %>% filter(test == "PROMIS-D"), aes(Var1, Var2)) +
+  geom_tile(aes(fill = value)) +
+  geom_text(aes(label = round(value, 2))) +
+  scale_fill_gradient(low = "white", high = "red", limits=c(-0.01,1.6))+
+  labs(fill = "Mutual entropy")+
+  theme_bw()+
+  theme(axis.title = element_blank())+
+  facet_grid(cols = vars(type),
+             scales = "free")+
+  labs(title = "PROMIS-D")
+
+ggarrange(p1, p2, nrow = 2, common.legend = T)
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| fig-width: 17
+#| fig-height: 8
+
+p1 <- ggplot(df_entropy %>% filter(test == "PHQ-9", type != "overall") %>% droplevels(), aes(Var1, Var2)) +
+  geom_tile(aes(fill = value)) +
+  geom_text(aes(label = round(value, 2))) +
+  scale_fill_gradient(low = "white", high = "red", limits=c(-0.01,1.6))+
+  labs(fill = "Mutual entropy")+
+  theme_bw()+
+  theme(axis.title = element_blank())+
+  facet_grid(cols = vars(type), 
+             scales = "free")+
+  labs(title = "PHQ-9")
+
+p2 <- ggplot(df_entropy %>% filter(test == "PROMIS-D", type != "overall") %>% droplevels(), aes(Var1, Var2)) +
+  geom_tile(aes(fill = value)) +
+  geom_text(aes(label = round(value, 2))) +
+  scale_fill_gradient(low = "white", high = "red", limits=c(-0.01,1.6))+
+  labs(fill = "Mutual entropy")+
+  theme_bw()+
+  theme(axis.title = element_blank())+
+  facet_grid(cols = vars(type),
+             scales = "free")+
+  labs(title = "PROMIS-D")
+
+ggarrange(p1, p2, nrow = 2, common.legend = T)
+```
+
+```{r}
+
+```

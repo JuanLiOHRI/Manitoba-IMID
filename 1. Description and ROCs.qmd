@@ -1,0 +1,523 @@
+title: "Analysis of the Manitoba data - sum scores and initial figures"
+author: "Juan Li"
+date: 2024-08-26
+format: pptx
+editor: visual
+---
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| output: false
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(GGally)
+library(ggpubr)
+library(dabestr)
+library(pROC)
+library(gtsummary)
+library(factoextra)
+library(ggfortify)
+```
+
+## Read data
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| output: false
+
+data <- read.csv("data/Manitpba data.csv", header = TRUE)
+```
+
+## Calculate sum scores
+
+```{r}
+ind <- which(grepl("phq_", names(data)))
+data$phq_dep <- rowSums(data[, ind])
+
+ind <- which(grepl("promis_dep", names(data)))
+data$promis_dep <- rowSums(data[, ind])
+```
+
+## Outcome
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+
+outcome <- data %>% select(scid_current_dep) 
+names(outcome) <- c("Major depression")
+
+outcome %>% 
+  tbl_summary(missing = "ifany") %>% 
+  modify_header(label = "**Disorder**") # update the column header
+```
+
+## Sum scores
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| fig-width: 8
+#| fig-height: 8
+
+depression <- data %>% select(phq_dep, promis_dep, scid_current_dep) %>% 
+  mutate(scid_current_dep = factor(scid_current_dep))
+names(depression) <- c("PHQ-9 score", "PROMIS-D score", "Major depression")
+ggpairs(depression, mapping=aes(colour = `Major depression`, alpha = 0.5)) + theme_bw()
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+
+# ROC
+test_vec <- c("phq_dep", "promis_dep")
+rocPlt <- data.frame()
+res <- data.frame()
+
+for (i in 1:length(test_vec)) {
+  group_var <- "scid_current_dep"
+  type <- "Sum score"
+  
+  df_i <- data %>% select(all_of(group_var), all_of(test_vec[i]))
+  names(df_i) <- c("group", "value")
+  
+  roc_1 <- roc(df_i$group, df_i$value, levels=c(0,1), na.rm=TRUE, ci=TRUE) 
+  temp <- (roc_1$sensitivities + roc_1$specificities)/2
+  ind <- which(temp == max(temp, na.rm = T))[1]
+  
+  rocPlt <- bind_rows(rocPlt,
+                      data.frame(type = rep(type, length(roc_1$sensitivities)),
+                                 test = rep(test_vec[i], length(roc_1$sensitivities)),
+                                 sensitivities = roc_1$sensitivities,
+                                 specificities = roc_1$specificities))
+  
+  res <- bind_rows(res,
+                   data.frame(type = type,
+                              test = test_vec[i],
+                              auc = paste0(round(roc_1$auc,2), " (",round(roc_1$ci[1],2),"-",round(roc_1$ci[3],2),")"),
+                              threshold = paste0("<= ", round(roc_1$thresholds[ind],2)),
+                              sensitivity = round(roc_1$sensitivities[ind],2),
+                              specificity = round(roc_1$specificities[ind],2)
+                   ))
+}
+```
+
+## Breakdown for each item
+
+```{r}
+option <- read.csv("data/items and options.csv", header = TRUE)
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| fig-width: 12
+#| fig-height: 9
+
+df_tbl <- data %>% select(scid_current_dep, phq_dep, phq_1:phq_9) %>% 
+  filter(!is.na(phq_dep)) %>% 
+  droplevels()
+df_tbl[c(1,3:ncol(df_tbl))] <- lapply(df_tbl[c(1,3:ncol(df_tbl))], factor)
+levels(df_tbl$scid_current_dep) <- c("No", "Yes")
+itm_vec <- names(df_tbl)[3:ncol(df_tbl)]
+noption <- 4
+for (i in 1:9) {
+  levels(df_tbl[,i+2]) <- as.character(option[which(option$Variable == itm_vec[i]), 3:(2+noption)])
+}
+
+names(df_tbl)[2] <- c("PHQ-9")
+names(df_tbl)[3:ncol(df_tbl)] <- option[which(option$Variable %in% names(df_tbl)[3:ncol(df_tbl)]), "Item"]
+
+names(df_tbl)[3:ncol(df_tbl)][3] <- paste("3. Trouble falling or staying asleep,",  "or sleeping too much", sep = "\n")
+names(df_tbl)[3:ncol(df_tbl)][6] <- paste("6. Feeling bad about yourself, or that you are", "a failure or have let yourself or your family down", sep = "\n")
+names(df_tbl)[3:ncol(df_tbl)][7] <- paste("7. Trouble concentrating on things, such as ", "reading the newspaper or watching television", sep = "\n")
+names(df_tbl)[3:ncol(df_tbl)][8] <- paste("8. Moving or speaking so slowly that ", "other peoplecould have noticed?", 
+                                          "Or the opposite, being so fidgety or restless that you", "have been moving around a lot more than usual", sep = "\n")
+names(df_tbl)[3:ncol(df_tbl)][9] <- paste("9. Thoughts that you would be better off dead", "or of hurting yourself in some way", sep = "\n")
+
+df_tbl %>%
+  tbl_summary(by = scid_current_dep,
+              missing = "ifany") %>%
+  modify_header(label = "**Current major depression**") # update the column header
+
+df_tbl_long <- df_tbl %>% 
+  pivot_longer(-c("scid_current_dep", "PHQ-9"), names_to = "item", values_to = "response")
+
+df <- df_tbl_long %>% 
+  group_by(scid_current_dep, item, response) %>% 
+  summarise(count = n()) %>% 
+  mutate(prob = count/sum(count))
+ggplot(df, aes(response, prob, fill = scid_current_dep)) +
+  geom_col(position = "dodge", width = 0.7)+
+  facet_wrap(~item)+
+  theme_bw()+
+  theme(legend.position = "none",
+        axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust=1))+
+  labs(y = "Proportion within each group",
+       title = names(df_tbl)[2],
+       text = element_text(size=16))
+```
+
+
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| fig-width: 12
+#| fig-height: 9
+
+df_tbl <- data %>% select(scid_current_dep, promis_dep, promis_dep1:promis_dep8) %>% 
+  filter(!is.na(promis_dep)) %>% 
+  droplevels()
+df_tbl[c(1,3:ncol(df_tbl))] <- lapply(df_tbl[c(1,3:ncol(df_tbl))], factor)
+levels(df_tbl$scid_current_dep) <- c("No", "Yes")
+itm_vec <- names(df_tbl)[3:ncol(df_tbl)]
+noption <- 5
+for (i in 1:8) {
+  levels(df_tbl[,i+2]) <- as.character(option[which(option$Variable == itm_vec[i]), 3:(2+noption)])
+}
+
+names(df_tbl)[2] <- c("PROMIS-D")
+names(df_tbl)[3:ncol(df_tbl)] <- option[which(option$Variable %in% names(df_tbl)[3:ncol(df_tbl)]), "Item"]
+
+df_tbl %>%
+  tbl_summary(by = scid_current_dep,
+              missing = "ifany") %>%
+  modify_header(label = "**Current major depression**") # update the column header
+
+df_tbl_long <- df_tbl %>% 
+  pivot_longer(-c("scid_current_dep", "PROMIS-D"), names_to = "item", values_to = "response")
+
+df <- df_tbl_long %>% 
+  group_by(scid_current_dep, item, response) %>% 
+  summarise(count = n()) %>% 
+  mutate(prob = count/sum(count))
+ggplot(df, aes(response, prob, fill = scid_current_dep)) +
+  geom_col(position = "dodge", width = 0.7)+
+  facet_wrap(~item)+
+  theme_bw()+
+  theme(legend.position = "none",
+        axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust=1))+
+  labs(y = "Proportion within each group",
+       title = names(df_tbl)[2],
+       text = element_text(size=16))
+```
+
+## correlation between items
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| fig-width: 13
+#| fig-height: 13
+
+option <- read.csv("data/items and options.csv", header = TRUE)
+
+dfPlt <- data %>% 
+  select(scid_current_dep, phq_1:phq_9, promis_dep1:promis_dep8) %>% 
+  mutate(scid_current_dep = factor(ifelse(is.na(scid_current_dep), NA,
+                                          ifelse(scid_current_dep == 0, "No", "Yes"))))
+
+# names(dfPlt)[2:10] <- paste0("PHQ-9: ", 1:9, ". ", option$Short.item[which(option$Variable %in% names(dfPlt)[2:10])])
+# names(dfPlt)[11:18] <- paste0("PROMIS-D: ", 1:8, ". ", option$Short.item[which(option$Variable %in% names(dfPlt)[11:18])])
+
+# M <- cor(dfPlt %>% select(-scid_current_dep), use = "complete.obs")
+# corrplot::corrplot.mixed(M, tl.pos = "l", order = 'hclust') 
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| fig-width: 7
+#| fig-height: 13
+
+dfPlt <- dfPlt[complete.cases(dfPlt), ]
+pca_result <- princomp(dfPlt %>% select(-scid_current_dep), scale. = TRUE)
+fviz_pca_var(pca_result, col.var = "cos2",
+             repel = TRUE) + 
+  theme(legend.position = c(0.1,0.9))
+
+autoplot(pca_result, data = dfPlt, colour = 'scid_current_dep', alpha = 0.5,
+         loadings = TRUE, loadings.label = TRUE, repel = TRUE) +
+  labs(color = "Current major depression") +
+  coord_cartesian(ylim=c(-0.055, 0.1))+
+  theme_bw() + 
+  theme(legend.position = c(0.8,0.9))
+```
+
+## Score index
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| fig-width: 8
+#| fig-height: 8
+
+df_theta_4b <- read.csv("data/saved results/df_theta_4b.csv", header = T) %>% 
+  bind_cols(data %>% select(scid_current_dep)) 
+names(df_theta_4b)[1:2] <-c("phq_dep", "promis_dep")
+
+depression <- df_theta_4b %>% 
+  mutate(scid_current_dep = factor(scid_current_dep))
+names(depression) <- c("PHQ-9 theta", "PROMIS-D theta", "Major depression")
+ggpairs(depression, mapping=aes(colour = `Major depression`, alpha = 0.5)) + theme_bw()
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+
+# ROC
+for (i in 1:length(test_vec)) {
+  group_var <- "scid_current_dep"
+  type <- "TG: theta, 4 basis"
+  
+  df_i <- df_theta_4b %>% select(all_of(group_var), all_of(test_vec[i]))
+  names(df_i) <- c("group", "value")
+  
+  roc_1 <- roc(df_i$group, df_i$value, levels=c(0,1), na.rm=TRUE, ci=TRUE) 
+  temp <- (roc_1$sensitivities + roc_1$specificities)/2
+  ind <- which(temp == max(temp, na.rm = T))[1]
+  
+  rocPlt <- bind_rows(rocPlt,
+                      data.frame(type = rep(type, length(roc_1$sensitivities)),
+                                 test = rep(test_vec[i], length(roc_1$sensitivities)),
+                                 sensitivities = roc_1$sensitivities,
+                                 specificities = roc_1$specificities))
+  
+  res <- bind_rows(res,
+                   data.frame(type = type,
+                              test = test_vec[i],
+                              auc = paste0(round(roc_1$auc,2), " (",round(roc_1$ci[1],2),"-",round(roc_1$ci[3],2),")"),
+                              threshold = paste0("<= ", round(roc_1$thresholds[ind],2)),
+                              sensitivity = round(roc_1$sensitivities[ind],2),
+                              specificity = round(roc_1$specificities[ind],2)
+                   ))
+}
+```
+
+## arclength distribution
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| fig-width: 8
+#| fig-height: 8
+
+df_theta_al_4b <- read.csv("data/saved results/df_theta_al_4b.csv", header = T) %>% 
+  bind_cols(data %>% select(scid_current_dep)) 
+names(df_theta_al_4b)[1:2] <-c("phq_dep", "promis_dep")
+
+depression <- df_theta_al_4b %>% 
+  mutate(scid_current_dep = factor(scid_current_dep))
+names(depression) <- c("PHQ-9 arclength", "PROMIS-D arclength", "Major depression")
+ggpairs(depression, mapping=aes(colour = `Major depression`, alpha = 0.5)) + theme_bw()
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+
+# ROC
+for (i in 1:length(test_vec)) {
+  group_var <- "scid_current_dep"
+  type <- "TG: arc length, 4 basis"
+  
+  df_i <- df_theta_al_4b %>% select(all_of(group_var), all_of(test_vec[i]))
+  names(df_i) <- c("group", "value")
+  
+  roc_1 <- roc(df_i$group, df_i$value, levels=c(0,1), na.rm=TRUE, ci=TRUE) 
+  temp <- (roc_1$sensitivities + roc_1$specificities)/2
+  ind <- which(temp == max(temp, na.rm = T))[1]
+  
+  rocPlt <- bind_rows(rocPlt,
+                      data.frame(type = rep(type, length(roc_1$sensitivities)),
+                                 test = rep(test_vec[i], length(roc_1$sensitivities)),
+                                 sensitivities = roc_1$sensitivities,
+                                 specificities = roc_1$specificities))
+  
+  res <- bind_rows(res,
+                   data.frame(type = type,
+                              test = test_vec[i],
+                              auc = paste0(round(roc_1$auc,2), " (",round(roc_1$ci[1],2),"-",round(roc_1$ci[3],2),")"),
+                              threshold = paste0("<= ", round(roc_1$thresholds[ind],2)),
+                              sensitivity = round(roc_1$sensitivities[ind],2),
+                              specificity = round(roc_1$specificities[ind],2)
+                   ))
+}
+```
+
+## GRM theta
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| fig-width: 8
+#| fig-height: 8
+
+df_theta_grm <- read.csv("data/saved results/grm_df_theta.csv", header = T) %>% 
+  bind_cols(data %>% select(scid_current_dep)) 
+names(df_theta_grm)[1:2] <-c("phq_dep", "promis_dep")
+
+depression <- df_theta_grm %>% 
+  mutate(scid_current_dep = factor(scid_current_dep))
+names(depression) <- c("PHQ-9 theta", "PROMIS-D theta", "Major depression")
+ggpairs(depression, mapping=aes(colour = `Major depression`, alpha = 0.5)) + theme_bw()
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+
+# ROC
+for (i in 1:length(test_vec)) {
+  group_var <- "scid_current_dep"
+  type <- "GRM: theta"
+  
+  df_i <- df_theta_grm %>% select(all_of(group_var), all_of(test_vec[i]))
+  names(df_i) <- c("group", "value")
+  
+  roc_1 <- roc(df_i$group, df_i$value, levels=c(0,1), na.rm=TRUE, ci=TRUE) 
+  temp <- (roc_1$sensitivities + roc_1$specificities)/2
+  ind <- which(temp == max(temp, na.rm = T))[1]
+  
+  rocPlt <- bind_rows(rocPlt,
+                      data.frame(type = rep(type, length(roc_1$sensitivities)),
+                                 test = rep(test_vec[i], length(roc_1$sensitivities)),
+                                 sensitivities = roc_1$sensitivities,
+                                 specificities = roc_1$specificities))
+  
+  res <- bind_rows(res,
+                   data.frame(type = type,
+                              test = test_vec[i],
+                              auc = paste0(round(roc_1$auc,2), " (",round(roc_1$ci[1],2),"-",round(roc_1$ci[3],2),")"),
+                              threshold = paste0("<= ", round(roc_1$thresholds[ind],2)),
+                              sensitivity = round(roc_1$sensitivities[ind],2),
+                              specificity = round(roc_1$specificities[ind],2)
+                   ))
+}
+```
+
+## GRM arc length
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| fig-width: 8
+#| fig-height: 8
+
+df_theta_al_grm <- read.csv("data/saved results/grm_df_theta_al.csv", header = T) %>% 
+  bind_cols(data %>% select(scid_current_dep)) 
+names(df_theta_al_grm)[1:2] <-c("phq_dep", "promis_dep")
+
+depression <- df_theta_al_grm %>% 
+  mutate(scid_current_dep = factor(scid_current_dep))
+names(depression) <- c("PHQ-9 arclength", "PROMIS-D arclength", "Major depression")
+ggpairs(depression, mapping=aes(colour = `Major depression`, alpha = 0.5)) + theme_bw()
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+
+# ROC
+for (i in 1:length(test_vec)) {
+  group_var <- "scid_current_dep"
+  type <- "GRM: arc length"
+  
+  df_i <- df_theta_al_grm %>% select(all_of(group_var), all_of(test_vec[i]))
+  names(df_i) <- c("group", "value")
+  
+  roc_1 <- roc(df_i$group, df_i$value, levels=c(0,1), na.rm=TRUE, ci=TRUE) 
+  temp <- (roc_1$sensitivities + roc_1$specificities)/2
+  ind <- which(temp == max(temp, na.rm = T))[1]
+  
+  rocPlt <- bind_rows(rocPlt,
+                      data.frame(type = rep(type, length(roc_1$sensitivities)),
+                                 test = rep(test_vec[i], length(roc_1$sensitivities)),
+                                 sensitivities = roc_1$sensitivities,
+                                 specificities = roc_1$specificities))
+  
+  res <- bind_rows(res,
+                   data.frame(type = type,
+                              test = test_vec[i],
+                              auc = paste0(round(roc_1$auc,2), " (",round(roc_1$ci[1],2),"-",round(roc_1$ci[3],2),")"),
+                              threshold = paste0("<= ", round(roc_1$thresholds[ind],2)),
+                              sensitivity = round(roc_1$sensitivities[ind],2),
+                              specificity = round(roc_1$specificities[ind],2)
+                   ))
+}
+res
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+
+rocPlt$test <- factor(rocPlt$test, levels = test_vec)
+rocPlt$type <- factor(rocPlt$type, levels = c("Sum score", "TG: theta, 4 basis", "TG: arc length, 4 basis", "GRM: theta", "GRM: arc length"))
+dfiag <- data.frame(x = seq(0,1,0.1), y = seq(0,1,0.1))
+
+df1 <- rocPlt %>% filter(test == "phq_dep", type %in% c("Sum score", "TG: theta, 4 basis", "GRM: theta")) %>% droplevels()
+levels(df1$type) <- c("Sum score", "TG", "GRM")
+ggplot(df1, aes(1-specificities, sensitivities, color = type)) +
+  geom_path(size = 1)+
+  scale_color_manual(values = c("orangered", "purple", "forestgreen"),
+                     labels = c(paste(levels(df1$type)[1], res$auc[which(res$test == "phq_dep" & res$type == "Sum score")], sep = ": "),
+                                paste(levels(df1$type)[2], res$auc[which(res$test == "phq_dep" & res$type == "TG: theta, 4 basis")], sep = ": "),
+                                paste(levels(df1$type)[3], res$auc[which(res$test == "phq_dep" & res$type == "GRM: theta")], sep = ": "))) + 
+  geom_line(data = dfiag, aes(x, y), linetype = "dashed", color = "black", size = 0.5)+
+  coord_fixed()+
+  labs(x = "1 - specificity",
+       y = "sensitivity",
+       color = "PHQ-9: AUC (95% CI)")+
+  theme_bw()+
+  theme(text = element_text(size = 14),
+        legend.position = c(0.65, 0.15))
+
+df2 <- rocPlt %>% filter(test == "promis_dep", type %in% c("Sum score", "TG: theta, 4 basis", "GRM: theta")) %>% droplevels()
+levels(df2$type) <- c("Sum score", "TG", "GRM")
+ggplot(df1, aes(1-specificities, sensitivities, color = type)) +
+  geom_path(size = 1)+
+  scale_color_manual(values = c("orangered", "purple", "forestgreen"),
+                     labels = c(paste(levels(df1$type)[1], res$auc[which(res$test == "promis_dep" & res$type == "Sum score")], sep = ": "),
+                                paste(levels(df1$type)[2], res$auc[which(res$test == "promis_dep" & res$type == "TG: theta, 4 basis")], sep = ": "),
+                                paste(levels(df1$type)[3], res$auc[which(res$test == "promis_dep" & res$type == "GRM: theta")], sep = ": "))) + 
+  geom_line(data = dfiag, aes(x, y), linetype = "dashed", color = "black", size = 0.5)+
+  coord_fixed()+
+  labs(x = "1 - specificity",
+       y = "sensitivity",
+       color = "PROMIS-D: AUC (95% CI)")+
+  theme_bw()+
+  theme(text = element_text(size = 14),
+        legend.position = c(0.65, 0.15))
+```
+
+```{r}
+
+```
